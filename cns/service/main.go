@@ -23,7 +23,6 @@ import (
 	"github.com/Azure/azure-container-networking/cns"
 	cnscli "github.com/Azure/azure-container-networking/cns/cmd/cli"
 	"github.com/Azure/azure-container-networking/cns/cnireconciler"
-	cni "github.com/Azure/azure-container-networking/cns/cnireconciler"
 	"github.com/Azure/azure-container-networking/cns/common"
 	"github.com/Azure/azure-container-networking/cns/configuration"
 	"github.com/Azure/azure-container-networking/cns/hnsclient"
@@ -42,6 +41,7 @@ import (
 	"github.com/Azure/azure-container-networking/crd/nodenetworkconfig/api/v1alpha"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/platform"
+	"github.com/Azure/azure-container-networking/processlock"
 	localtls "github.com/Azure/azure-container-networking/server/tls"
 	"github.com/Azure/azure-container-networking/store"
 	"github.com/pkg/errors"
@@ -472,9 +472,15 @@ func main() {
 		return
 	}
 
+	processLockCli, err := processlock.NewFileLock(platform.CNILockPath + name + store.LockExtension)
+	if err != nil {
+		log.Printf("Error initializing file lock:%v", err)
+		return
+	}
+
 	// Create the key value store.
 	storeFileName := storeFileLocation + name + ".json"
-	config.Store, err = store.NewJsonFileStore(storeFileName)
+	config.Store, err = store.NewJsonFileStore(storeFileName, processLockCli)
 	if err != nil {
 		logger.Errorf("Failed to create store file: %s, due to error %v\n", storeFileName, err)
 		return
@@ -541,7 +547,8 @@ func main() {
 		// If so, we should check that the the CNI is new enough to support the state commands,
 		// otherwise we fall back to the existing behavior.
 		if cnsconfig.InitializeFromCNI {
-			isGoodVer, err := cni.IsDumpStateVer()
+			var isGoodVer bool
+			isGoodVer, err = cnireconciler.IsDumpStateVer()
 			if err != nil {
 				logger.Errorf("error checking CNI ver: %v", err)
 			}
@@ -650,9 +657,16 @@ func main() {
 			return
 		}
 
+		var procLockCnm processlock.ProcessLockInterface
+		procLockCnm, err = processlock.NewFileLock(platform.CNILockPath + pluginName + store.LockExtension)
+		if err != nil {
+			log.Printf("Error initializing file lock:%v", err)
+			return
+		}
+
 		// Create the key value store.
 		pluginStoreFile := storeFileLocation + pluginName + ".json"
-		pluginConfig.Store, err = store.NewJsonFileStore(pluginStoreFile)
+		pluginConfig.Store, err = store.NewJsonFileStore(pluginStoreFile, procLockCnm)
 		if err != nil {
 			logger.Errorf("Failed to create plugin store file %s, due to error : %v\n", pluginStoreFile, err)
 			return
