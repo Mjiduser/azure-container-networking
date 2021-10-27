@@ -157,7 +157,7 @@ func (plugin *Plugin) InitializeKeyValueStore(config *common.PluginConfig) error
 		processLockCli, err := processlock.NewFileLock(platform.CNILockPath + plugin.Name + store.LockExtension)
 		if err != nil {
 			log.Printf("Error initializing file lock:%v", err)
-			return err
+			return errors.Wrap(err, "error creating new filelock")
 		}
 
 		plugin.Store, err = store.NewJsonFileStore(platform.CNIRuntimePath+plugin.Name+".json", processLockCli)
