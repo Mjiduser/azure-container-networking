@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-container-networking/processlock"
 	"github.com/stretchr/testify/require"
@@ -207,7 +208,7 @@ func TestLock(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.store.Lock(tt.timeoutms)
+			err := tt.store.Lock(time.Duration(tt.timeoutms) * time.Millisecond)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.wantErrMsg, "Expected:%v but got:%v", tt.wantErrMsg, err.Error())

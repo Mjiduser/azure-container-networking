@@ -25,8 +25,8 @@ const (
 	// LockExtension - Extension added to the file name for lock.
 	LockExtension = ".lock"
 
-	// LockTimeoutInMs - lock timeout in milliseconds
-	LockTimeoutInMs = 10000
+	// DefaultLockTimeout - lock timeout in milliseconds
+	DefaultLockTimeout = 10000 * time.Millisecond
 )
 
 // jsonFileStore is an implementation of KeyValueStore using a local JSON file.
@@ -34,20 +34,20 @@ type jsonFileStore struct {
 	fileName    string
 	data        map[string]*json.RawMessage
 	inSync      bool
-	processLock processlock.ProcessLockInterface
+	processLock processlock.Interface
 	sync.Mutex
 }
 
 //nolint:revive // ignoring name change
 // NewJsonFileStore creates a new jsonFileStore object, accessed as a KeyValueStore.
-func NewJsonFileStore(fileName string, pLockCli processlock.ProcessLockInterface) (KeyValueStore, error) {
+func NewJsonFileStore(fileName string, lockclient processlock.Interface) (KeyValueStore, error) {
 	if fileName == "" {
 		fileName = defaultFileName
 	}
 
 	kvs := &jsonFileStore{
 		fileName:    fileName,
-		processLock: pLockCli,
+		processLock: lockclient,
 		data:        make(map[string]*json.RawMessage),
 	}
 
@@ -166,16 +166,16 @@ func (kvs *jsonFileStore) flush() error {
 }
 
 func (kvs *jsonFileStore) lockUtil(status chan error) {
-	err := kvs.processLock.AcquireLock()
+	err := kvs.processLock.Lock()
 	status <- err
 }
 
 // Lock locks the store for exclusive access.
-func (kvs *jsonFileStore) Lock(timeoutms int) error {
+func (kvs *jsonFileStore) Lock(timeout time.Duration) error {
 	kvs.Mutex.Lock()
 	defer kvs.Mutex.Unlock()
 
-	timeout := time.After(time.Duration(timeoutms) * time.Millisecond)
+	afterTime := time.After(timeout)
 	status := make(chan error)
 
 	log.Printf("Acquiring process lock")
@@ -183,7 +183,7 @@ func (kvs *jsonFileStore) Lock(timeoutms int) error {
 
 	var err error
 	select {
-	case <-timeout:
+	case <-afterTime:
 		return ErrTimeoutLockingStore
 	case err = <-status:
 	}
@@ -201,7 +201,7 @@ func (kvs *jsonFileStore) Unlock() error {
 	kvs.Mutex.Lock()
 	defer kvs.Mutex.Unlock()
 
-	err := kvs.processLock.ReleaseLock()
+	err := kvs.processLock.Unlock()
 	if err != nil {
 		return errors.Wrap(err, "Release lockfile error")
 	}

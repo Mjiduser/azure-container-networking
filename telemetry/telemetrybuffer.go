@@ -249,7 +249,7 @@ func push(x interface{}) {
 	if err != nil {
 		log.Logf("Error getting metadata %v", err)
 
-		var processLockCli processlock.ProcessLockInterface
+		var processLockCli processlock.Interface
 		processLockCli, err = processlock.NewFileLock(metadataFile + store.LockExtension)
 		if err != nil {
 			log.Printf("Error initializing file lock:%v", err)
@@ -262,7 +262,7 @@ func push(x interface{}) {
 			log.Printf("Error acuiring lock for writing metadata file: %v", err)
 		}
 
-		err = kvs.Lock(store.LockTimeoutInMs)
+		err = kvs.Lock(store.DefaultLockTimeout)
 		if err != nil {
 			log.Errorf("push: Not able to acquire lock:%v", err)
 			return

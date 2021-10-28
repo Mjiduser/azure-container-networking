@@ -28,7 +28,7 @@ func (ms *mockStore) Flush() error {
 	return nil
 }
 
-func (ms *mockStore) Lock(timeoutms int) error {
+func (ms *mockStore) Lock(duration time.Duration) error {
 	return nil
 }
 

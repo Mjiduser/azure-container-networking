@@ -657,7 +657,7 @@ func main() {
 			return
 		}
 
-		var procLockCnm processlock.ProcessLockInterface
+		var procLockCnm processlock.Interface
 		procLockCnm, err = processlock.NewFileLock(platform.CNILockPath + pluginName + store.LockExtension)
 		if err != nil {
 			log.Printf("Error initializing file lock:%v", err)

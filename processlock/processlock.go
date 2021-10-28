@@ -5,22 +5,21 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/Azure/azure-container-networking/internal/lockedfile"
 	"github.com/pkg/errors"
 )
 
-// ErrInvalidFile - invalid file pointer
+// ErrInvalidFile represents invalid file pointer
 var (
-	ErrEmptyFilePath = errors.New("Empty file path")
-	ErrInvalidFile   = errors.New("Invalid File pointer")
+	ErrEmptyFilePath = errors.New("empty file path")
+	ErrInvalidFile   = errors.New("invalid File pointer")
 )
 
 //nolint:revive // this naming makes sense
-type ProcessLockInterface interface {
-	AcquireLock() error
-	ReleaseLock() error
+type Interface interface {
+	Lock() error
+	Unlock() error
 }
 
 type fileLock struct {
@@ -28,7 +27,7 @@ type fileLock struct {
 	file     *lockedfile.File
 }
 
-func NewFileLock(fileAbsPath string) (ProcessLockInterface, error) {
+func NewFileLock(fileAbsPath string) (Interface, error) {
 	if fileAbsPath == "" {
 		return nil, ErrEmptyFilePath
 	}
@@ -44,7 +43,7 @@ func NewFileLock(fileAbsPath string) (ProcessLockInterface, error) {
 	}, nil
 }
 
-func (l *fileLock) AcquireLock() error {
+func (l *fileLock) Lock() error {
 	var err error
 
 	l.file, err = lockedfile.Create(l.filePath)
@@ -60,13 +59,13 @@ func (l *fileLock) AcquireLock() error {
 	return nil
 }
 
-func (l *fileLock) ReleaseLock() error {
+func (l *fileLock) Unlock() error {
 	if l.file == nil {
 		return ErrInvalidFile
 	}
 
 	err := l.file.Close()
-	if err != nil && !strings.Contains(err.Error(), fs.ErrClosed.Error()) {
+	if err != nil && !errors.Is(err, fs.ErrClosed) {
 		return errors.Wrap(err, "Failed to release lock")
 	}
 

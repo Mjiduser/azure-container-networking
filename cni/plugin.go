@@ -156,7 +156,7 @@ func (plugin *Plugin) InitializeKeyValueStore(config *common.PluginConfig) error
 	if plugin.Store == nil {
 		processLockCli, err := processlock.NewFileLock(platform.CNILockPath + plugin.Name + store.LockExtension)
 		if err != nil {
-			log.Printf("Error initializing file lock:%v", err)
+			log.Printf("[cni] Error initializing file lock:%v", err)
 			return errors.Wrap(err, "error creating new filelock")
 		}
 
@@ -168,7 +168,7 @@ func (plugin *Plugin) InitializeKeyValueStore(config *common.PluginConfig) error
 	}
 
 	// Acquire store lock.
-	if err := plugin.Store.Lock(store.LockTimeoutInMs); err != nil {
+	if err := plugin.Store.Lock(store.DefaultLockTimeout); err != nil {
 		log.Printf("[cni] Failed to lock store: %v.", err)
 		return err
 	}

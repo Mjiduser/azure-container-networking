@@ -115,7 +115,7 @@ func getMetadata(th *telemetryHandle) {
 		return
 	}
 
-	err = kvs.Lock(store.LockTimeoutInMs)
+	err = kvs.Lock(store.DefaultLockTimeout)
 	if err != nil {
 		log.Errorf("getMetadata: Not able to acquire lock:%v", err)
 		return

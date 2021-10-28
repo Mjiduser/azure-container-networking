@@ -142,7 +142,7 @@ func main() {
 	tb.ConnectToTelemetryService(telemetryNumRetries, telemetryWaitTimeInMilliseconds)
 	defer tb.Close()
 
-	var processLockCli processlock.ProcessLockInterface
+	var processLockCli processlock.Interface
 	for {
 		processLockCli, err = processlock.NewFileLock(platform.CNILockPath + pluginName + store.LockExtension)
 		if err != nil {

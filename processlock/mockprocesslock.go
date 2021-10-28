@@ -11,13 +11,13 @@ type mockFileLock struct {
 	fail bool
 }
 
-func NewMockFileLock(fail bool) ProcessLockInterface {
+func NewMockFileLock(fail bool) Interface {
 	return &mockFileLock{
 		fail: fail,
 	}
 }
 
-func (l *mockFileLock) AcquireLock() error {
+func (l *mockFileLock) Lock() error {
 	if l.fail {
 		return ErrMockFileLock
 	}
@@ -25,7 +25,7 @@ func (l *mockFileLock) AcquireLock() error {
 	return nil
 }
 
-func (l *mockFileLock) ReleaseLock() error {
+func (l *mockFileLock) Unlock() error {
 	if l.fail {
 		return ErrMockFileLock
 	}

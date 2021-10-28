@@ -33,7 +33,7 @@ func (mockst *KeyValueStoreMock) Flush() error {
 	return mockst.FlushError
 }
 
-func (mockst *KeyValueStoreMock) Lock(timeoutms int) error {
+func (mockst *KeyValueStoreMock) Lock(time.Duration) error {
 	return mockst.LockError
 }
 

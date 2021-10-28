@@ -200,7 +200,7 @@ func main() {
 			log.Errorf("Failed to initialize key-value store of network plugin, err:%v.\n", err)
 			tb = telemetry.NewTelemetryBuffer()
 			if tberr := tb.Connect(); tberr != nil {
-				log.Errorf("Cannot connect to telemetry service")
+				log.Errorf("Cannot connect to telemetry service:%v", tberr)
 				return
 			}
 
