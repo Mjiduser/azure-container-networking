@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-container-networking/npm/util"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	coreinformer "k8s.io/client-go/informers/core/v1"
@@ -66,6 +67,15 @@ func newNs(name string) *Namespace {
 		LabelsMap: make(map[string]string),
 	}
 	return ns
+}
+
+func (nsObj *Namespace) getNamespaceObjFromNsObj() *corev1.Namespace {
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nsObj.name,
+			Labels: nsObj.LabelsMap,
+		},
+	}
 }
 
 func (nsObj *Namespace) appendLabels(newm map[string]string, clear LabelAppendOperation) {
