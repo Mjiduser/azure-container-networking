@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	dp "github.com/Azure/azure-container-networking/npm/pkg/dataplane"
+	"github.com/Azure/azure-container-networking/npm/pkg/dataplane"
+	"github.com/Azure/azure-container-networking/npm/pkg/dataplane/ipsets"
 	dpmocks "github.com/Azure/azure-container-networking/npm/pkg/dataplane/mocks"
 	"github.com/Azure/azure-container-networking/npm/util"
 	gomock "github.com/golang/mock/gomock"
@@ -20,7 +21,6 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	core "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/utils/exec"
 )
 
 var (
@@ -43,17 +43,17 @@ type nameSpaceFixture struct {
 	// Objects from here preloaded into NewSimpleFake.
 	kubeobjects []runtime.Object
 
-	dp           dp.GenericDataplane
+	dp           dataplane.GenericDataplane
 	nsController *NamespaceController
 	kubeInformer kubeinformers.SharedInformerFactory
 }
 
-func newNsFixture(t *testing.T, utilexec exec.Interface) *nameSpaceFixture {
+func newNsFixture(t *testing.T, dp dataplane.GenericDataplane) *nameSpaceFixture {
 	f := &nameSpaceFixture{
 		t:           t,
 		nsLister:    []*corev1.Namespace{},
 		kubeobjects: []runtime.Object{},
-		dp:          dpmocks.NewMockGenericDataplane(gomock.NewController(t)),
+		dp:          dp,
 	}
 	return f
 }
@@ -136,8 +136,11 @@ func deleteNamespace(t *testing.T, f *nameSpaceFixture, nsObj *corev1.Namespace,
 }
 
 func TestAddNamespace(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	nsObj := newNameSpace(
 		"test-namespace",
@@ -153,21 +156,37 @@ func TestAddNamespace(t *testing.T) {
 	defer close(stopCh)
 	f.newNsController(stopCh)
 
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(1)
+
+	// Call into add NS
 	addNamespace(t, f, nsObj)
 
+	// Cache and state validation section
 	testCases := []expectedNsValues{
 		{0, 1, 0},
 	}
 	checkNsTestResult("TestAddNamespace", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(nsObj.Name)]; !exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[nsObj.Name]; !exists {
 		t.Errorf("TestAddNamespace failed @ npMgr.nsMap check")
 	}
 }
 
 func TestUpdateNamespace(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	oldNsObj := newNameSpace(
 		"test-namespace",
@@ -190,28 +209,51 @@ func TestUpdateNamespace(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	dp.EXPECT().RemoveFromList(setsToAddNamespaceTo[3], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+
+	setsToAddNamespaceToNew := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("app:new-test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+	dp.EXPECT().AddToLists(setsToAddNamespaceToNew, setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+
+	// Call into update NS
 	updateNamespace(t, f, oldNsObj, newNsObj)
 
+	// Cache and state validation section
 	testCases := []expectedNsValues{
 		{0, 1, 0},
 	}
 	checkNsTestResult("TestUpdateNamespace", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(newNsObj.Name)]; !exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[newNsObj.Name]; !exists {
 		t.Errorf("TestUpdateNamespace failed @ npMgr.nsMap check")
 	}
 
 	if !reflect.DeepEqual(
 		newNsObj.Labels,
-		f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(oldNsObj.Name)].LabelsMap,
+		f.nsController.npmNamespaceCache.NsMap[oldNsObj.Name].LabelsMap,
 	) {
 		t.Fatalf("TestUpdateNamespace failed @ npMgr.nsMap labelMap check")
 	}
 }
 
 func TestAddNamespaceLabel(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	oldNsObj := newNameSpace(
 		"test-namespace",
@@ -234,6 +276,29 @@ func TestAddNamespaceLabel(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	dp.EXPECT().RemoveFromList(setsToAddNamespaceTo[3], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+
+	setsToAddNamespaceToNew := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("app:new-test-namespace", ipsets.KeyValueLabelOfNamespace),
+		ipsets.NewIPSetMetadata("update", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("update:true", ipsets.KeyValueLabelOfNamespace),
+	}
+	for i := 0; i < len(setsToAddNamespaceToNew); i++ {
+		dp.EXPECT().AddToLists([]*ipsets.IPSetMetadata{setsToAddNamespaceToNew[i]}, setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	}
+
+	// Call into update NS
 	updateNamespace(t, f, oldNsObj, newNsObj)
 
 	testCases := []expectedNsValues{
@@ -241,21 +306,24 @@ func TestAddNamespaceLabel(t *testing.T) {
 	}
 	checkNsTestResult("TestAddNamespaceLabel", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(newNsObj.Name)]; !exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[newNsObj.Name]; !exists {
 		t.Errorf("TestAddNamespaceLabel failed @ nsMap check")
 	}
 
 	if !reflect.DeepEqual(
 		newNsObj.Labels,
-		f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(oldNsObj.Name)].LabelsMap,
+		f.nsController.npmNamespaceCache.NsMap[oldNsObj.Name].LabelsMap,
 	) {
 		t.Fatalf("TestAddNamespaceLabel failed @ nsMap labelMap check")
 	}
 }
 
 func TestAddNamespaceLabelSameRv(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	oldNsObj := newNameSpace(
 		"test-namespace",
@@ -279,6 +347,18 @@ func TestAddNamespaceLabelSameRv(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(1)
+
 	updateNamespace(t, f, oldNsObj, newNsObj)
 
 	testCases := []expectedNsValues{
@@ -286,21 +366,24 @@ func TestAddNamespaceLabelSameRv(t *testing.T) {
 	}
 	checkNsTestResult("TestAddNamespaceLabelSameRv", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(newNsObj.Name)]; !exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[newNsObj.Name]; !exists {
 		t.Errorf("TestAddNamespaceLabelSameRv failed @ nsMap check")
 	}
 
 	if !reflect.DeepEqual(
 		oldNsObj.Labels,
-		f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(oldNsObj.Name)].LabelsMap,
+		f.nsController.npmNamespaceCache.NsMap[oldNsObj.Name].LabelsMap,
 	) {
 		t.Fatalf("TestAddNamespaceLabelSameRv failed @ nsMap labelMap check")
 	}
 }
 
 func TestDeleteandUpdateNamespaceLabel(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	oldNsObj := newNameSpace(
 		"test-namespace",
@@ -326,6 +409,32 @@ func TestDeleteandUpdateNamespaceLabel(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:old-test-namespace", ipsets.KeyValueLabelOfNamespace),
+		ipsets.NewIPSetMetadata("update", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("update:true", ipsets.KeyValueLabelOfNamespace),
+		ipsets.NewIPSetMetadata("group", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("group:test", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	setsToAddNamespaceToNew := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("update:false", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	// Remove calls
+	for i := 5; i < len(setsToAddNamespaceTo); i++ {
+		dp.EXPECT().RemoveFromList(setsToAddNamespaceTo[i], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	}
+	// Add calls
+	dp.EXPECT().AddToLists(setsToAddNamespaceToNew, setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+
 	updateNamespace(t, f, oldNsObj, newNsObj)
 
 	testCases := []expectedNsValues{
@@ -333,13 +442,13 @@ func TestDeleteandUpdateNamespaceLabel(t *testing.T) {
 	}
 	checkNsTestResult("TestDeleteandUpdateNamespaceLabel", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(newNsObj.Name)]; !exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[newNsObj.Name]; !exists {
 		t.Errorf("TestDeleteandUpdateNamespaceLabel failed @ nsMap check")
 	}
 
 	if !reflect.DeepEqual(
 		newNsObj.Labels,
-		f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(oldNsObj.Name)].LabelsMap,
+		f.nsController.npmNamespaceCache.NsMap[oldNsObj.Name].LabelsMap,
 	) {
 		t.Fatalf("TestDeleteandUpdateNamespaceLabel failed @ nsMap labelMap check")
 	}
@@ -349,8 +458,11 @@ func TestDeleteandUpdateNamespaceLabel(t *testing.T) {
 // this happens when NSA delete event is missed and deleted from NPMLocalCache,
 // but NSA gets added again. This will result in an update event with old and new with different UUIDs
 func TestNewNameSpaceUpdate(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	oldNsObj := newNameSpace(
 		"test-namespace",
@@ -378,6 +490,32 @@ func TestNewNameSpaceUpdate(t *testing.T) {
 	defer close(stopCh)
 	f.newNsController(stopCh)
 	newNsObj.SetUID("test2")
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:old-test-namespace", ipsets.KeyValueLabelOfNamespace),
+		ipsets.NewIPSetMetadata("update", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("update:true", ipsets.KeyValueLabelOfNamespace),
+		ipsets.NewIPSetMetadata("group", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("group:test", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	setsToAddNamespaceToNew := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("update:false", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	// Remove calls
+	for i := 5; i < len(setsToAddNamespaceTo); i++ {
+		dp.EXPECT().RemoveFromList(setsToAddNamespaceTo[i], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	}
+	// Add calls
+	dp.EXPECT().AddToLists(setsToAddNamespaceToNew, setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+
 	updateNamespace(t, f, oldNsObj, newNsObj)
 
 	testCases := []expectedNsValues{
@@ -385,21 +523,24 @@ func TestNewNameSpaceUpdate(t *testing.T) {
 	}
 	checkNsTestResult("TestDeleteandUpdateNamespaceLabel", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(newNsObj.Name)]; !exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[newNsObj.Name]; !exists {
 		t.Errorf("TestDeleteandUpdateNamespaceLabel failed @ nsMap check")
 	}
 
 	if !reflect.DeepEqual(
 		newNsObj.Labels,
-		f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(oldNsObj.Name)].LabelsMap,
+		f.nsController.npmNamespaceCache.NsMap[oldNsObj.Name].LabelsMap,
 	) {
 		t.Fatalf("TestDeleteandUpdateNamespaceLabel failed @ nsMap labelMap check")
 	}
 }
 
 func TestDeleteNamespace(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 
 	nsObj := newNameSpace(
 		"test-namespace",
@@ -414,6 +555,24 @@ func TestDeleteNamespace(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+
+	// Remove calls
+	for i := 1; i < len(setsToAddNamespaceTo); i++ {
+		dp.EXPECT().RemoveFromList(setsToAddNamespaceTo[i], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	}
+	dp.EXPECT().DeleteIPSet(setsToAddNamespaceTo[0]).Return().Times(1)
+
 	deleteNamespace(t, f, nsObj, DeletedFinalStateknownObject)
 
 	testCases := []expectedNsValues{
@@ -421,14 +580,17 @@ func TestDeleteNamespace(t *testing.T) {
 	}
 	checkNsTestResult("TestDeleteNamespace", f, testCases)
 
-	if _, exists := f.nsController.npmNamespaceCache.NsMap[util.GetNSNameWithPrefix(nsObj.Name)]; exists {
+	if _, exists := f.nsController.npmNamespaceCache.NsMap[nsObj.Name]; exists {
 		t.Errorf("TestDeleteNamespace failed @ nsMap check")
 	}
 }
 
 func TestDeleteNamespaceWithTombstone(t *testing.T) {
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
@@ -461,13 +623,34 @@ func TestDeleteNamespaceWithTombstoneAfterAddingNameSpace(t *testing.T) {
 			"app": "test-namespace",
 		},
 	)
-	fexec := exec.New()
-	f := newNsFixture(t, fexec)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dp := dpmocks.NewMockGenericDataplane(ctrl)
+	f := newNsFixture(t, dp)
 	f.nsLister = append(f.nsLister, nsObj)
 	f.kubeobjects = append(f.kubeobjects, nsObj)
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 	f.newNsController(stopCh)
+
+	// DPMock expect section
+	setsToAddNamespaceTo := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		kubeAllNamespaces,
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfNamespace),
+		ipsets.NewIPSetMetadata("app:test-namespace", ipsets.KeyValueLabelOfNamespace),
+	}
+
+	dp.EXPECT().AddToLists(setsToAddNamespaceTo[1:], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+
+	// Remove calls
+	for i := 1; i < len(setsToAddNamespaceTo); i++ {
+		dp.EXPECT().RemoveFromList(setsToAddNamespaceTo[i], setsToAddNamespaceTo[:1]).Return(nil).Times(1)
+	}
+	dp.EXPECT().DeleteIPSet(setsToAddNamespaceTo[0]).Return().Times(1)
 
 	deleteNamespace(t, f, nsObj, DeletedFinalStateUnknownObject)
 	testCases := []expectedNsValues{

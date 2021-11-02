@@ -480,7 +480,7 @@ func existIngress(npObj *networkingv1.NetworkPolicy) bool { //nolint:unused //it
 		len(npObj.Spec.Ingress[0].From) == 0)
 }
 
-func translatePolicy(npObj *networkingv1.NetworkPolicy) *policies.NPMNetworkPolicy { //nolint:deadcode,unused //it will be called from v2 networkPolicyController which will come in next PR
+func TranslatePolicy(npObj *networkingv1.NetworkPolicy) *policies.NPMNetworkPolicy { //nolint:deadcode,unused //it will be called from v2 networkPolicyController which will come in next PR
 	npmNetPol := &policies.NPMNetworkPolicy{
 		Name:      npObj.ObjectMeta.Name,
 		NameSpace: npObj.ObjectMeta.Namespace,
