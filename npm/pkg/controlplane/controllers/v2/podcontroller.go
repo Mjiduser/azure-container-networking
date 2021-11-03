@@ -399,7 +399,7 @@ func (c *PodController) syncAddedPod(podObj *corev1.Pod) error {
 	// Add pod's named ports from its ipset.
 	klog.Infof("Adding named port ipsets")
 	containerPorts := getContainerPortList(podObj)
-	if err = c.manageNamedPortIpsets(containerPorts, podKey, npmPodObj.PodIP, addNamedPort); err != nil {
+	if err = c.manageNamedPortIpsets(containerPorts, podKey, npmPodObj.PodIP, podObj.Spec.NodeName, addNamedPort); err != nil {
 		return fmt.Errorf("[syncAddedPod] Error: failed to add pod to named port ipset with err: %w", err)
 	}
 	npmPodObj.appendContainerPorts(podObj)
@@ -519,14 +519,14 @@ func (c *PodController) syncAddAndUpdatePod(newPodObj *corev1.Pod) error {
 	if !reflect.DeepEqual(cachedNpmPod.ContainerPorts, newPodPorts) {
 		// Delete cached pod's named ports from its ipset.
 		if err = c.manageNamedPortIpsets(
-			cachedNpmPod.ContainerPorts, podKey, cachedNpmPod.PodIP, deleteNamedPort); err != nil {
+			cachedNpmPod.ContainerPorts, podKey, cachedNpmPod.PodIP, "", deleteNamedPort); err != nil {
 			return fmt.Errorf("[syncAddAndUpdatePod] Error: failed to delete pod from named port ipset with err: %w", err)
 		}
 		// Since portList ipset deletion is successful, NPM can remove cachedContainerPorts
 		cachedNpmPod.removeContainerPorts()
 
 		// Add new pod's named ports from its ipset.
-		if err = c.manageNamedPortIpsets(newPodPorts, podKey, newPodObj.Status.PodIP, addNamedPort); err != nil {
+		if err = c.manageNamedPortIpsets(newPodPorts, podKey, newPodObj.Status.PodIP, newPodObj.Spec.NodeName, addNamedPort); err != nil {
 			return fmt.Errorf("[syncAddAndUpdatePod] Error: failed to add pod to named port ipset with err: %w", err)
 		}
 		cachedNpmPod.appendContainerPorts(newPodObj)
@@ -557,17 +557,13 @@ func (c *PodController) cleanUpDeletedPod(cachedNpmPodKey string) error {
 
 	// Get lists of podLabelKey and podLabelKey + podLavelValue ,and then start deleting them from ipsets
 	for labelKey, labelVal := range cachedNpmPod.Labels {
-		klog.Infof("Deleting pod %s from ipset %s", cachedNpmPod.PodIP, labelKey)
-		if err = c.dp.RemoveFromSets(
-			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata(labelKey, ipsets.KeyLabelOfPod)},
-			cachedPodMetadata); err != nil {
-			return fmt.Errorf("[cleanUpDeletedPod] Error: failed to delete pod from label ipset with err: %w", err)
-		}
-
 		podIPSetName := util.GetIpSetFromLabelKV(labelKey, labelVal)
-		klog.Infof("Deleting pod %s from ipset %s", cachedNpmPod.PodIP, podIPSetName)
+		klog.Infof("Deleting pod %s from ipsets %s and %s", cachedNpmPod.PodIP, labelKey, podIPSetName)
 		if err = c.dp.RemoveFromSets(
-			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata(podIPSetName, ipsets.KeyValueLabelOfPod)},
+			[]*ipsets.IPSetMetadata{
+				ipsets.NewIPSetMetadata(labelKey, ipsets.KeyLabelOfPod),
+				ipsets.NewIPSetMetadata(podIPSetName, ipsets.KeyValueLabelOfPod),
+			},
 			cachedPodMetadata); err != nil {
 			return fmt.Errorf("[cleanUpDeletedPod] Error: failed to delete pod from label ipset with err: %w", err)
 		}
@@ -576,7 +572,7 @@ func (c *PodController) cleanUpDeletedPod(cachedNpmPodKey string) error {
 
 	// Delete pod's named ports from its ipset. Need to pass true in the manageNamedPortIpsets function call
 	if err = c.manageNamedPortIpsets(
-		cachedNpmPod.ContainerPorts, cachedNpmPodKey, cachedNpmPod.PodIP, deleteNamedPort); err != nil {
+		cachedNpmPod.ContainerPorts, cachedNpmPodKey, cachedNpmPod.PodIP, "", deleteNamedPort); err != nil {
 		return fmt.Errorf("[cleanUpDeletedPod] Error: failed to delete pod from named port ipset with err: %w", err)
 	}
 
@@ -585,8 +581,8 @@ func (c *PodController) cleanUpDeletedPod(cachedNpmPodKey string) error {
 }
 
 // manageNamedPortIpsets helps with adding or deleting Pod namedPort IPsets.
-func (c *PodController) manageNamedPortIpsets(portList []corev1.ContainerPort, podKey string,
-	podIP string, namedPortOperation NamedPortOperation) error {
+func (c *PodController) manageNamedPortIpsets(portList []corev1.ContainerPort, podKey,
+	podIP, nodeName string, namedPortOperation NamedPortOperation) error {
 	for _, port := range portList {
 		klog.Infof("port is %+v", port)
 		if port.Name == "" {
@@ -600,18 +596,17 @@ func (c *PodController) manageNamedPortIpsets(portList []corev1.ContainerPort, p
 			protocol = fmt.Sprintf("%s:", port.Protocol)
 		}
 
-		namedPort := util.NamedPortIPSetPrefix + port.Name
 		namedPortIpsetEntry := fmt.Sprintf("%s,%s%d", podIP, protocol, port.ContainerPort)
 
 		// nodename in NewPodMetadata is nil so UpdatePod is ignored
-		podMetadata := dataplane.NewPodMetadata(podKey, namedPortIpsetEntry, "")
+		podMetadata := dataplane.NewPodMetadata(podKey, namedPortIpsetEntry, nodeName)
 		switch namedPortOperation {
 		case deleteNamedPort:
-			if err := c.dp.RemoveFromSets([]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata(namedPort, ipsets.NamedPorts)}, podMetadata); err != nil {
+			if err := c.dp.RemoveFromSets([]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata(port.Name, ipsets.NamedPorts)}, podMetadata); err != nil {
 				return fmt.Errorf("failed to remove from set when deleting named port with err %w", err)
 			}
 		case addNamedPort:
-			if err := c.dp.AddToSets([]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata(namedPort, ipsets.NamedPorts)}, podMetadata); err != nil {
+			if err := c.dp.AddToSets([]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata(port.Name, ipsets.NamedPorts)}, podMetadata); err != nil {
 				return fmt.Errorf("failed to add to set when deleting named port with err %w", err)
 			}
 		}
