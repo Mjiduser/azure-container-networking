@@ -229,7 +229,7 @@ func TestAddMultipleNetworkPolicies(t *testing.T) {
 	dp := dpmocks.NewMockGenericDataplane(ctrl)
 	f.newNetPolController(stopCh, dp)
 
-	dp.EXPECT()
+	dp.EXPECT().AddPolicy(gomock.Any()).Times(2)
 
 	execCount := resetPrometheusAndGetExecCount(f.t)
 
@@ -258,6 +258,7 @@ func TestAddNetworkPolicy(t *testing.T) {
 	f.newNetPolController(stopCh, dp)
 
 	execCount := resetPrometheusAndGetExecCount(f.t)
+	dp.EXPECT().AddPolicy(gomock.Any()).Times(1)
 
 	addNetPol(t, f, netPolObj)
 	testCases := []expectedNetPolValues{
@@ -283,6 +284,8 @@ func TestDeleteNetworkPolicy(t *testing.T) {
 	f.newNetPolController(stopCh, dp)
 
 	execCount := resetPrometheusAndGetExecCount(f.t)
+	dp.EXPECT().AddPolicy(gomock.Any()).Times(1)
+	dp.EXPECT().RemovePolicy(gomock.Any()).Times(1)
 
 	deleteNetPol(t, f, netPolObj, DeletedFinalStateknownObject)
 	testCases := []expectedNetPolValues{
@@ -337,6 +340,8 @@ func TestDeleteNetworkPolicyWithTombstoneAfterAddingNetworkPolicy(t *testing.T) 
 	f.newNetPolController(stopCh, dp)
 
 	execCount := resetPrometheusAndGetExecCount(f.t)
+	dp.EXPECT().AddPolicy(gomock.Any()).Times(1)
+	dp.EXPECT().RemovePolicy(gomock.Any()).Times(1)
 
 	deleteNetPol(t, f, netPolObj, DeletedFinalStateUnknownObject)
 	testCases := []expectedNetPolValues{
@@ -368,6 +373,7 @@ func TestUpdateNetworkPolicy(t *testing.T) {
 	// oldNetPolObj.ResourceVersion value is "0"
 	newRV, _ := strconv.Atoi(oldNetPolObj.ResourceVersion)
 	newNetPolObj.ResourceVersion = fmt.Sprintf("%d", newRV+1)
+	dp.EXPECT().AddPolicy(gomock.Any()).Times(1)
 
 	updateNetPol(t, f, oldNetPolObj, newNetPolObj)
 	testCases := []expectedNetPolValues{
@@ -404,6 +410,9 @@ func TestLabelUpdateNetworkPolicy(t *testing.T) {
 	// oldNetPolObj.ResourceVersion value is "0"
 	newRV, _ := strconv.Atoi(oldNetPolObj.ResourceVersion)
 	newNetPolObj.ResourceVersion = fmt.Sprintf("%d", newRV+1)
+	dp.EXPECT().AddPolicy(gomock.Any()).Times(2)
+	dp.EXPECT().RemovePolicy(gomock.Any()).Times(1)
+
 	updateNetPol(t, f, oldNetPolObj, newNetPolObj)
 
 	testCases := []expectedNetPolValues{
