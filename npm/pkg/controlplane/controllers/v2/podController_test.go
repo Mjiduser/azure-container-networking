@@ -371,6 +371,15 @@ func TestDeletePod(t *testing.T) {
 		).
 		Return(nil).Times(1)
 	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	// Delete pod section
+	dp.EXPECT().RemoveFromSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().RemoveFromSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		RemoveFromSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
 
 	deletePod(t, f, podObj, DeletedFinalStateknownObject)
 	testCases := []expectedValues{
@@ -457,6 +466,34 @@ func TestDeletePodWithTombstoneAfterAddingPod(t *testing.T) {
 	defer close(stopCh)
 	f.newPodController(stopCh)
 
+	// Add pod section
+	mockIPSets := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfPod),
+		ipsets.NewIPSetMetadata("app:test-pod", ipsets.KeyValueLabelOfPod),
+	}
+	podMetadata1 := dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4", "")
+
+	dp.EXPECT().AddToLists([]*ipsets.IPSetMetadata{kubeAllNamespaces}, mockIPSets[:1]).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		AddToSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	// Delete pod section
+	dp.EXPECT().RemoveFromSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().RemoveFromSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		RemoveFromSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+
 	deletePod(t, f, podObj, DeletedFinalStateUnknownObject)
 	testCases := []expectedValues{
 		{0, 1, 0},
@@ -488,6 +525,29 @@ func TestLabelUpdatePod(t *testing.T) {
 	// oldPodObj.ResourceVersion value is "0"
 	newRV, _ := strconv.Atoi(oldPodObj.ResourceVersion)
 	newPodObj.ResourceVersion = fmt.Sprintf("%d", newRV+1)
+
+	// Add pod section
+	mockIPSets := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfPod),
+		ipsets.NewIPSetMetadata("app:test-pod", ipsets.KeyValueLabelOfPod),
+	}
+	podMetadata1 := dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4", "")
+
+	dp.EXPECT().AddToLists([]*ipsets.IPSetMetadata{kubeAllNamespaces}, mockIPSets[:1]).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		AddToSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	// Update section
+	dp.EXPECT().RemoveFromSets(mockIPSets[2:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().AddToSets([]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:new-test-pod", ipsets.KeyValueLabelOfPod)}, podMetadata1).Return(nil).Times(1)
+
 	updatePod(t, f, oldPodObj, newPodObj)
 
 	testCases := []expectedValues{
@@ -520,6 +580,44 @@ func TestIPAddressUpdatePod(t *testing.T) {
 	newPodObj.ResourceVersion = fmt.Sprintf("%d", newRV+1)
 	// oldPodObj PodIP is "1.2.3.4"
 	newPodObj.Status.PodIP = "4.3.2.1"
+	// Add pod section
+	mockIPSets := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfPod),
+		ipsets.NewIPSetMetadata("app:test-pod", ipsets.KeyValueLabelOfPod),
+	}
+	podMetadata1 := dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4", "")
+
+	dp.EXPECT().AddToLists([]*ipsets.IPSetMetadata{kubeAllNamespaces}, mockIPSets[:1]).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		AddToSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	// Delete pod section
+	dp.EXPECT().RemoveFromSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().RemoveFromSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		RemoveFromSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+	// New IP Pod add
+	podMetadata2 := dataplane.NewPodMetadata("test-namespace/test-pod", "4.3.2.1", "")
+	dp.EXPECT().AddToSets(mockIPSets[:1], podMetadata2).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[1:], podMetadata2).Return(nil).Times(1)
+	dp.EXPECT().
+		AddToSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "4.3.2.1,8080", ""),
+		).
+		Return(nil).Times(1)
+
 	updatePod(t, f, oldPodObj, newPodObj)
 
 	testCases := []expectedValues{
@@ -554,6 +652,34 @@ func TestPodStatusUpdatePod(t *testing.T) {
 
 	// oldPodObj PodIP is "1.2.3.4"
 	newPodObj.Status.Phase = corev1.PodSucceeded
+
+	mockIPSets := []*ipsets.IPSetMetadata{
+		ipsets.NewIPSetMetadata("test-namespace", ipsets.Namespace),
+		ipsets.NewIPSetMetadata("app", ipsets.KeyLabelOfPod),
+		ipsets.NewIPSetMetadata("app:test-pod", ipsets.KeyValueLabelOfPod),
+	}
+	podMetadata1 := dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4", "")
+
+	dp.EXPECT().AddToLists([]*ipsets.IPSetMetadata{kubeAllNamespaces}, mockIPSets[:1]).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().AddToSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		AddToSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+	dp.EXPECT().ApplyDataPlane().Return(nil).Times(2)
+	// Delete pod section
+	dp.EXPECT().RemoveFromSets(mockIPSets[:1], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().RemoveFromSets(mockIPSets[1:], podMetadata1).Return(nil).Times(1)
+	dp.EXPECT().
+		RemoveFromSets(
+			[]*ipsets.IPSetMetadata{ipsets.NewIPSetMetadata("app:test-pod", ipsets.NamedPorts)},
+			dataplane.NewPodMetadata("test-namespace/test-pod", "1.2.3.4,8080", ""),
+		).
+		Return(nil).Times(1)
+
 	updatePod(t, f, oldPodObj, newPodObj)
 
 	testCases := []expectedValues{

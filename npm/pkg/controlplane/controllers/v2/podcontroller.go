@@ -546,7 +546,7 @@ func (c *PodController) cleanUpDeletedPod(cachedNpmPodKey string) error {
 	}
 
 	var err error
-	cachedPodMetadata := dataplane.NewPodMetadata(cachedNpmPod.PodIP, cachedNpmPodKey, "")
+	cachedPodMetadata := dataplane.NewPodMetadata(cachedNpmPodKey, cachedNpmPod.PodIP, "")
 	// Delete the pod from its namespace's ipset.
 	// note: NodeName empty is not going to call update pod
 	if err = c.dp.RemoveFromSets(
